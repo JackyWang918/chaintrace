@@ -1,7 +1,7 @@
 # ChainTrace（链迹）
 
 使用 Python 学习 EVM 链上数据，逐步构建 ERC-20 地址转账监控系统。
-当前处于 M1 环境准备阶段，尚未配置 RPC 或进行链上查询。
+M1-1、M1-2 已完成；M1-3 交易与回执最小查询已实现，待用户运行与核验。M1 整体验收尚未完成。
 
 ## 环境
 
@@ -50,7 +50,65 @@ uv add --dev <开发工具包名>
 
 `.env`、私钥、日志和运行数据不提交 Git。
 以后需要 RPC 配置时，提供不含密钥的 `.env.example`。
-当前没有 RPC 配置，也没有添加区块链 SDK；在第一个查询实验中按需加入。
+M1-1 使用 Python 标准库调用 JSON-RPC，使用 python-dotenv 加载本地配置，暂不需要区块链 SDK。
+
+## M1-1：第一次只读查询
+
+在项目根目录运行（Windows 使用 WSL 终端）：
+
+```bash
+cp -n .env.example .env
+uv run --locked chaintrace network
+```
+
+示例使用 PublicNode 的以太坊主网公共 RPC，不需要钱包或私钥。
+程序先调用 `eth_chainId`，确认链 ID 为 `1`，再调用 `eth_blockNumber`。
+RPC 原始整数以 `0x` 开头，程序用 `int(raw, 16)` 转成十进制。
+输出包含查询时间与对应 Etherscan 区块链接；高度随时间变化，旧结果不代表当前最新高度。
+打开链接核对区块是否存在，再查看浏览器最新高度；不同查询时间或节点同步差异可能造成高度差。
+公共 RPC 可能超时或限流；失败时程序报错并以非零状态退出，不将错误当成区块高度。
+本地 `.env` 不提交；已有 shell 环境变量优先于 `.env`。
+
+制造一次连接失败（仅对这条命令覆盖配置，不修改 `.env`）：
+
+```bash
+NO_PROXY=127.0.0.1 no_proxy=127.0.0.1 ETH_RPC_URL=http://127.0.0.1:1 uv run --locked chaintrace network
+```
+
+预期显示连接失败并退出；该实验假设本机端口 1 没有服务。
+这表示本次未能查询节点，不能据此判断区块链停止出块。
+
+## M1-2：地址余额
+
+M1-2 查询一个公开示例地址的 ETH 余额：
+
+```bash
+uv run --locked chaintrace balance 0x000000000000000000000000000000000000dEaD
+```
+
+该示例地址用于学习公开余额查询，不需要钱包或私钥。程序先确认链 ID 为 `1`，取得一个区块号，再调用 `eth_getBalance` 查询该区块的余额，输出原始 wei 和精确的 ETH 换算。`1 ETH = 10^18 wei`；换算使用整数拆分，没有浮点数。输出中的 Etherscan 地址页可辅助核对，但它通常显示当前余额；若查询时刻不同，不应直接要求金额完全相同。请先核对网络和地址，再比较区块或时间。
+
+## M1-3：交易与回执
+
+查询一笔公开、已执行的简单 ETH 转账（不会发起交易）：
+
+```bash
+uv run --locked chaintrace transaction 0x7e19e6872e065ee699f378b24da8e3f5dcb3e0bc15135905fb85748c81ff332f
+```
+
+程序分别调用 `eth_getTransactionByHash` 与 `eth_getTransactionReceipt`，输出请求的发送方、接收方、金额、Nonce、Gas 上限，以及回执中的区块、执行状态、实际 Gas 消耗与实际单价。金额和手续费使用整数计算。
+
+本实验中 `status=1` 表示执行成功，`status=0` 表示执行失败；查不到交易或回执表示当前节点未提供对应结果，不等于执行失败。已查到回执时还会核对交易与回执的交易哈希、区块号和区块哈希是否一致。
+
+执行手续费（wei）为 `gasUsed × effectiveGasPrice`，不是 Gas 上限乘价格；交易的 `value` 是请求金额，不能仅凭这个字段断言转账成功。这里解释简单主网 ETH 转账的执行费，不包含 blob 等其他交易类型的额外费用；未检查最终确定性。
+
+打开输出的 Etherscan 链接，核对 From、To、Value、Block、Status、Transaction Fee。Nonce 是发送账户的交易序号，用于交易排序并防止同一笔已用序号的交易重复执行；本实验只读取，不构造或签名。
+
+验证状态分支和费用计算：
+
+```bash
+uv run --locked python -m unittest discover -s tests -v
+```
 
 ## 学习衔接
 

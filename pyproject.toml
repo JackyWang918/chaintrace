@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Python EVM learning and ERC-20 transfer monitoring"
 readme = "README.md"
 requires-python = ">=3.12.15,<3.13"
-dependencies = []
+dependencies = [
+    "python-dotenv>=1.2.4",
+]
 
 [project.scripts]
 chaintrace = "chaintrace:main"
