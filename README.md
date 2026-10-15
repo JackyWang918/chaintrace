@@ -44,10 +44,18 @@ uv add --dev <开发工具包名>
 同步代码、README、`.python-version`、`pyproject.toml` 和 `uv.lock`。
 换电脑后先拉取代码，再运行 `uv sync --locked`。
 `.venv` 由每台电脑各自创建，不复制、不提交。
-当前已初始化本地 Git 仓库，尚未添加远程地址或创建提交。
+仓库：https://github.com/JackyWang918/chaintrace.git，默认分支为 `main`。
 
 ## 本地配置与数据
 
 `.env`、私钥、日志和运行数据不提交 Git。
 以后需要 RPC 配置时，提供不含密钥的 `.env.example`。
 当前没有 RPC 配置，也没有添加区块链 SDK；在第一个查询实验中按需加入。
+
+## 学习衔接
+
+- [整体学习计划](docs/learning-plan.md)：目标、M1–M6 路线、验收与教学方式。
+- [当前进度](docs/progress.md)：已完成证据、尚未完成事项与下一小步。
+- [AI 协作约定](AGENTS.md)：新对话先读取上述文件。
+
+换电脑后先拉取最新代码，在项目目录开启新对话即可接续；若对话未加载此仓库，请先提供仓库位置或这些文件。
