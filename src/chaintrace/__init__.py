@@ -5,14 +5,20 @@ import argparse
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="ChainTrace learning experiments")
-    parser.add_argument("command", nargs="?", choices=["network", "balance", "transaction"])
+    parser.add_argument("command", nargs="?", choices=["network", "balance", "transaction", "token-balance"])
     parser.add_argument("target", nargs="?", help="Public address (balance) or transaction hash (transaction)")
     args = parser.parse_args()
-    if args.command in {"network", "balance", "transaction"}:
+    if args.command in {"network", "balance", "transaction", "token-balance"}:
         from chaintrace.rpc import show_balance, show_network, show_transaction
 
         try:
-            if args.command == "balance":
+            if args.command == "token-balance":
+                from chaintrace.token import show_token_balance
+
+                if not args.target:
+                    parser.error("token-balance 命令需要一个公开持有者地址")
+                show_token_balance(args.target)
+            elif args.command == "balance":
                 if not args.target:
                     parser.error("balance 命令需要一个公开地址")
                 show_balance(args.target)

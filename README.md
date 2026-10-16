@@ -1,7 +1,7 @@
 # ChainTrace（链迹）
 
 使用 Python 学习 EVM 链上数据，逐步构建 ERC-20 地址转账监控系统。
-M1-1、M1-2 已完成；M1-3 交易与回执最小查询已实现，待用户运行与核验。M1 整体验收尚未完成。
+M1 已完成。M2 已开始：提供主网 USDC 余额与 decimals 最小只读查询，等待用户核验；尚未实现代币转账或授权。
 
 ## 环境
 
@@ -110,7 +110,27 @@ uv run --locked chaintrace transaction 0x7e19e6872e065ee699f378b24da8e3f5dcb3e0b
 uv run --locked python -m unittest discover -s tests -v
 ```
 
+## M2：第一次代币余额查询
+
+```bash
+uv run --locked chaintrace token-balance 0x000000000000000000000000000000000000dEaD
+```
+
+目前只查询主网 USDC，合约按 [Circle 官方地址](https://developers.circle.com/stablecoins/usdc-contract-addresses) 固定为 `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`。资产身份是网络加合约地址；命令参数为持有者地址，不是代币合约地址。
+
+程序通过 `eth_call` 读取同一区块的 `decimals()` 和 `balanceOf(address)`，输出原始代币整数与精确换算结果。显示数量为 `原始整数 / 10^decimals`；该整数不是 ETH 的 wei，不能默认除以 `10^18`。不发送交易，不需要私钥或支付链上 Gas。空返回和调用错误会报错，不视为余额零；decimals 缺失时不猜测默认值。
+
+本次 USDC 名称是按官方合约配置的标签，尚未调用 name/symbol。输出的 token 链接指定合约与持有者，核对时先确认两种地址；浏览器当前余额可能与指定区块的余额不同。此查询不会验证持有者的 ETH 余额。
+
 ## 学习衔接
+
+M2 离线 ABI 返回值对照实验：
+
+```bash
+uv run --locked python examples/abi_returns.py
+```
+
+此脚本使用模拟 RPC 返回值，不访问网络。32 字节全零可解码为整数 0，空数据 `0x` 会被拒绝；用于说明不能把未取得有效数据当成余额零。
 
 - [整体学习计划](docs/learning-plan.md)：目标、M1–M6 路线、验收与教学方式。
 - [当前进度](docs/progress.md)：已完成证据、尚未完成事项与下一小步。

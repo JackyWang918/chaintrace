@@ -72,11 +72,17 @@ def checked_mainnet(url: str) -> tuple[str, int]:
     return chain_raw, chain_id
 
 
-def format_eth(wei: int) -> str:
-    whole, fraction = divmod(wei, 10**18)
+def format_units(amount: int, decimals: int) -> str:
+    if amount < 0 or not 0 <= decimals <= 255:
+        raise ValueError("金额必须为非负整数，decimals 必须在 0 到 255 之间")
+    whole, fraction = divmod(amount, 10**decimals)
     if fraction == 0:
         return str(whole)
-    return f"{whole}.{fraction:018d}".rstrip("0")
+    return f"{whole}.{fraction:0{decimals}d}".rstrip("0")
+
+
+def format_eth(wei: int) -> str:
+    return format_units(wei, 18)
 
 
 def show_network() -> None:
