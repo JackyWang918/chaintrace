@@ -5,14 +5,29 @@ import argparse
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="ChainTrace learning experiments")
-    parser.add_argument("command", nargs="?", choices=["network", "balance", "transaction", "token-balance"])
+    parser.add_argument("command", nargs="?", choices=["network", "balance", "transaction", "token-balance", "token-info", "token-allowance"])
     parser.add_argument("target", nargs="?", help="Public address (balance) or transaction hash (transaction)")
+    parser.add_argument("spender", nargs="?", help="Spender address for token-allowance")
     args = parser.parse_args()
-    if args.command in {"network", "balance", "transaction", "token-balance"}:
+    if args.spender and args.command != "token-allowance":
+        parser.error("此命令不接受第二个地址")
+    if args.command in {"network", "balance", "transaction", "token-balance", "token-info", "token-allowance"}:
         from chaintrace.rpc import show_balance, show_network, show_transaction
 
         try:
-            if args.command == "token-balance":
+            if args.command == "token-allowance":
+                from chaintrace.token import show_token_allowance
+
+                if not args.target or not args.spender:
+                    parser.error("token-allowance 命令需要持有者和被授权者两个地址")
+                show_token_allowance(args.target, args.spender)
+            elif args.command == "token-info":
+                from chaintrace.token import show_token_info
+
+                if args.target or args.spender:
+                    parser.error("token-info 命令不需要地址")
+                show_token_info()
+            elif args.command == "token-balance":
                 from chaintrace.token import show_token_balance
 
                 if not args.target:

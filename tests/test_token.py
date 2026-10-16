@@ -4,10 +4,60 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from chaintrace.rpc import format_eth, format_units
-from chaintrace.token import USDC_CONTRACT, read_uint256, show_token_balance
+from chaintrace.token import USDC_CONTRACT, read_abi_string, read_uint256, show_token_allowance, show_token_balance, show_token_info
 
 
 class TokenBalanceTests(unittest.TestCase):
+    def test_allowance_uses_owner_then_spender_at_same_block(self):
+        owner = "0x" + "1" * 40
+        spender = "0x" + "2" * 40
+        out = io.StringIO()
+        with (
+            patch("chaintrace.token.rpc_url", return_value="https://rpc.example"),
+            patch("chaintrace.token.checked_mainnet"),
+            patch("chaintrace.token.read_quantity", return_value=("0x123", 291)),
+            patch("chaintrace.token.rpc_call", side_effect=[
+                "0x" + format(6, "064x"), "0x" + format(3000000, "064x"),
+            ]) as call,
+            redirect_stdout(out),
+        ):
+            show_token_allowance(owner, spender)
+        self.assertEqual(call.call_args_list[1].args[2], [
+            {"to": USDC_CONTRACT, "data": "0xdd62ed3e" + "0" * 24 + "1" * 40 + "0" * 24 + "2" * 40},
+            "0x123",
+        ])
+        self.assertTrue(all(item.args[2][1] == "0x123" for item in call.call_args_list))
+        self.assertIn("Remaining allowance: 3 USDC", out.getvalue())
+
+    def test_token_info_reads_metadata_at_one_block(self):
+        def abi_string(value: str) -> str:
+            encoded = value.encode("utf-8")
+            padded = encoded + bytes((-len(encoded)) % 32)
+            return "0x" + (32).to_bytes(32).hex() + len(encoded).to_bytes(32).hex() + padded.hex()
+
+        out = io.StringIO()
+        with (
+            patch("chaintrace.token.rpc_url", return_value="https://rpc.example"),
+            patch("chaintrace.token.checked_mainnet"),
+            patch("chaintrace.token.read_quantity", return_value=("0x123", 291)),
+            patch("chaintrace.token.rpc_call", side_effect=[
+                abi_string("USD Coin"), abi_string("USDC"), "0x" + format(6, "064x"),
+            ]) as call,
+            redirect_stdout(out),
+        ):
+            show_token_info()
+        self.assertEqual([item.args[2][0]["data"] for item in call.call_args_list], [
+            "0x06fdde03", "0x95d89b41", "0x313ce567",
+        ])
+        self.assertTrue(all(item.args[2][1] == "0x123" for item in call.call_args_list))
+        self.assertIn("Name (contract): USD Coin", out.getvalue())
+        self.assertIn("Decimals (contract): 6", out.getvalue())
+
+    def test_empty_metadata_response_is_rejected(self):
+        with patch("chaintrace.token.rpc_call", return_value="0x"):
+            with self.assertRaisesRegex(ValueError, "ABI 字符串"):
+                read_abi_string("https://rpc.example", "0x06fdde03", "0x123")
+
     def test_decimal_precision_and_native_amount_compatibility(self):
         self.assertEqual(format_units(1234567, 6), "1.234567")
         self.assertEqual(format_units(1, 6), "0.000001")
