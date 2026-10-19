@@ -5,17 +5,29 @@ import argparse
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="ChainTrace learning experiments")
-    parser.add_argument("command", nargs="?", choices=["network", "balance", "transaction", "token-balance", "token-info", "token-allowance"])
-    parser.add_argument("target", nargs="?", help="Public address (balance) or transaction hash (transaction)")
+    parser.add_argument("command", nargs="?", choices=["network", "balance", "transaction", "token-balance", "token-info", "token-allowance", "token-transfers", "token-logs"])
+    parser.add_argument("target", nargs="?", help="Public address, transaction hash, or decimal block number (token-logs)")
     parser.add_argument("spender", nargs="?", help="Spender address for token-allowance")
     args = parser.parse_args()
     if args.spender and args.command != "token-allowance":
         parser.error("此命令不接受第二个地址")
-    if args.command in {"network", "balance", "transaction", "token-balance", "token-info", "token-allowance"}:
+    if args.command in {"network", "balance", "transaction", "token-balance", "token-info", "token-allowance", "token-transfers", "token-logs"}:
         from chaintrace.rpc import show_balance, show_network, show_transaction
 
         try:
-            if args.command == "token-allowance":
+            if args.command == "token-logs":
+                from chaintrace.transfer import show_block_transfers
+
+                if not args.target or not args.target.isascii() or not args.target.isdecimal():
+                    parser.error("token-logs 命令需要一个非负十进制区块号")
+                show_block_transfers(int(args.target))
+            elif args.command == "token-transfers":
+                from chaintrace.transfer import show_transfers
+
+                if not args.target:
+                    parser.error("token-transfers 命令需要一个交易哈希")
+                show_transfers(args.target)
+            elif args.command == "token-allowance":
                 from chaintrace.token import show_token_allowance
 
                 if not args.target or not args.spender:
