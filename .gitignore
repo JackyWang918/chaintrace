@@ -16,6 +16,10 @@ wheels/
 data/
 logs/
 *.log
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 
 # OS files
 .DS_Store

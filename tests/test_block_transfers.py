@@ -3,6 +3,7 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
+from chaintrace import main
 from chaintrace.token import USDC_CONTRACT
 from chaintrace.transfer import TRANSFER_TOPIC, show_block_transfers
 
@@ -24,16 +25,20 @@ class BlockTransferTests(unittest.TestCase):
             "data": "0x" + format(amount, "064x"),
         }
 
-    def run_query(self, result):
+    def run_query(self, result, end_block=None, second_block=None):
         output = io.StringIO()
+        replies = [self.block()]
+        if end_block is not None:
+            replies.append(second_block)
+        replies.append(result)
         with (
             patch("chaintrace.transfer.rpc_url", return_value="https://rpc.example"),
             patch("chaintrace.transfer.checked_mainnet"),
-            patch("chaintrace.transfer.rpc_call", side_effect=[self.block(), result]) as call,
+            patch("chaintrace.transfer.rpc_call", side_effect=replies) as call,
             patch("chaintrace.transfer.read_uint256") as metadata,
             redirect_stdout(output),
         ):
-            show_block_transfers(291)
+            show_block_transfers(291, end_block)
         metadata.assert_not_called()
         return output.getvalue(), call
 
@@ -67,3 +72,43 @@ class BlockTransferTests(unittest.TestCase):
     def test_repeated_log_index_is_rejected_rather_than_silently_dropped(self):
         with self.assertRaisesRegex(ValueError, "重复 logIndex"):
             self.run_query([self.log(4, 1), self.log(4, 2)])
+
+    def test_two_block_range_keeps_same_index_in_each_block_and_sorts(self):
+        block2 = {"number": "0x124", "hash": "0x" + "c" * 64, "timestamp": "0x462"}
+        log2 = dict(self.log(0, 2), blockNumber="0x124", blockHash=block2["hash"],
+                    transactionHash="0x" + "d" * 64)
+        output, call = self.run_query([log2, self.log(0, 1)], 292, block2)
+        self.assertIn("Block range (inclusive): 291..292", output)
+        self.assertIn("Block 291: 1 USDC Transfer logs", output)
+        self.assertIn("Block 292: 1 USDC Transfer logs", output)
+        self.assertIn("USDC Transfer logs: 2", output)
+        self.assertIn("Distinct transactions with matching logs: 2", output)
+        self.assertLess(output.index("Log index: 0 | Block: 291"),
+                        output.index("Log index: 0 | Block: 292"))
+        self.assertEqual(call.call_args_list[2].args[1:], ("eth_getLogs", [{
+            "fromBlock": "0x123", "toBlock": "0x124",
+            "address": USDC_CONTRACT, "topics": [TRANSFER_TOPIC],
+        }]))
+
+    def test_empty_final_block_is_reported_and_missing_final_block_is_failure(self):
+        block2 = {"number": "0x124", "hash": "0x" + "c" * 64, "timestamp": "0x462"}
+        output, _ = self.run_query([self.log(0, 1)], 292, block2)
+        self.assertIn("Block 292: 0 USDC Transfer logs", output)
+        with self.assertRaisesRegex(ValueError, "未返回区块 292"):
+            self.run_query([], 292, None)
+
+    def test_invalid_or_too_large_range_fails_before_network(self):
+        with patch("chaintrace.transfer.rpc_url") as config:
+            for start, end in [(-1, 0), (291, 290), (291, 293)]:
+                with self.subTest(start=start, end=end), self.assertRaises(ValueError):
+                    show_block_transfers(start, end)
+        config.assert_not_called()
+
+    def test_cli_accepts_end_block_and_keeps_single_block_usage(self):
+        for args, expected in [(["291", "292"], (291, 292)), (["291"], (291, None))]:
+            with (
+                patch("sys.argv", ["chaintrace", "token-logs", *args]),
+                patch("chaintrace.transfer.show_block_transfers") as show,
+            ):
+                main()
+            show.assert_called_once_with(*expected)

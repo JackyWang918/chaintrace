@@ -1,26 +1,38 @@
 import platform
 import sys
 import argparse
+from pathlib import Path
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="ChainTrace learning experiments")
-    parser.add_argument("command", nargs="?", choices=["network", "balance", "transaction", "token-balance", "token-info", "token-allowance", "token-transfers", "token-logs"])
-    parser.add_argument("target", nargs="?", help="Public address, transaction hash, or decimal block number (token-logs)")
-    parser.add_argument("spender", nargs="?", help="Spender address for token-allowance")
+    parser.add_argument("command", nargs="?", choices=["network", "balance", "transaction", "token-balance", "token-info", "token-allowance", "token-transfers", "token-logs", "collect-token-logs"])
+    parser.add_argument("target", nargs="?", help="Public address, transaction hash, or decimal start block (log commands)")
+    parser.add_argument("spender", nargs="?", help="Spender address (token-allowance) or inclusive end block (log commands)")
+    parser.add_argument("--db", type=Path, help="SQLite path for collect-token-logs (default: project data/chaintrace.sqlite3)")
     args = parser.parse_args()
-    if args.spender and args.command != "token-allowance":
-        parser.error("此命令不接受第二个地址")
-    if args.command in {"network", "balance", "transaction", "token-balance", "token-info", "token-allowance", "token-transfers", "token-logs"}:
+    if args.spender and args.command not in {"token-allowance", "token-logs", "collect-token-logs"}:
+        parser.error("此命令不接受第二个参数")
+    if args.db is not None and args.command != "collect-token-logs":
+        parser.error("--db 仅适用于 collect-token-logs")
+    if args.command in {"network", "balance", "transaction", "token-balance", "token-info", "token-allowance", "token-transfers", "token-logs", "collect-token-logs"}:
         from chaintrace.rpc import show_balance, show_network, show_transaction
 
         try:
-            if args.command == "token-logs":
+            if args.command in {"token-logs", "collect-token-logs"}:
                 from chaintrace.transfer import show_block_transfers
 
                 if not args.target or not args.target.isascii() or not args.target.isdecimal():
-                    parser.error("token-logs 命令需要一个非负十进制区块号")
-                show_block_transfers(int(args.target))
+                    parser.error("日志命令需要一个非负十进制区块号")
+                if args.spender is not None and (not args.spender.isascii() or not args.spender.isdecimal()):
+                    parser.error("结束区块必须为非负十进制整数")
+                end_block = int(args.spender) if args.spender is not None else None
+                if args.command == "collect-token-logs":
+                    from chaintrace.storage import DEFAULT_DB, collect_transfers
+
+                    collect_transfers(int(args.target), end_block, args.db if args.db is not None else DEFAULT_DB)
+                else:
+                    show_block_transfers(int(args.target), end_block)
             elif args.command == "token-transfers":
                 from chaintrace.transfer import show_transfers
 

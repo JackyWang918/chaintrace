@@ -3,7 +3,9 @@
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
+from time import sleep
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -11,7 +13,34 @@ from urllib.request import Request, urlopen
 from dotenv import load_dotenv
 
 
+TIMEOUT_RETRY_METHODS = frozenset({
+    "eth_chainId", "eth_blockNumber", "eth_getBalance",
+    "eth_getTransactionByHash", "eth_getTransactionReceipt",
+    "eth_call", "eth_getBlockByNumber", "eth_getLogs",
+})
+
+
+class _RPCTimeout(ValueError):
+    """Only a recognized transport timeout is eligible for this experiment."""
+
+
 def rpc_call(url: str, method: str, params: list[object] | None = None) -> object:
+    # Explicit read allowlist: do not carry this retry policy into future writes.
+    max_attempts = 3 if method in TIMEOUT_RETRY_METHODS else 1
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return _rpc_call_once(url, method, params)
+        except _RPCTimeout:
+            if attempt == max_attempts:
+                raise ValueError(f"RPC 请求超时，已尝试 {attempt} 次，本次查询失败") from None
+            print(
+                f"RPC {method} 第 {attempt} 次请求超时，{attempt} 秒后重试（最多 {max_attempts} 次尝试）",
+                file=sys.stderr,
+            )
+            sleep(attempt)
+
+
+def _rpc_call_once(url: str, method: str, params: list[object] | None = None) -> object:
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or []}
     request = Request(
         url,
@@ -22,9 +51,15 @@ def rpc_call(url: str, method: str, params: list[object] | None = None) -> objec
         with urlopen(request, timeout=15) as response:
             body = json.load(response)
     except HTTPError as exc:
-        raise ValueError(f"RPC HTTP 错误：{exc.code}（可能是限流或服务异常）") from None
-    except (URLError, TimeoutError, OSError):
-        raise ValueError("RPC 连接失败或超时，请检查网络和 ETH_RPC_URL") from None
+        raise ValueError(f"RPC HTTP 错误：{exc.code}，本轮不自动重试该状态码") from None
+    except TimeoutError:
+        raise _RPCTimeout("RPC 请求超时") from None
+    except URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            raise _RPCTimeout("RPC 请求超时") from None
+        raise ValueError("RPC 连接失败，请检查网络和 ETH_RPC_URL") from None
+    except OSError:
+        raise ValueError("RPC 连接失败，请检查网络和 ETH_RPC_URL") from None
     except (ValueError, UnicodeError):
         raise ValueError("RPC 返回了无法解析的 JSON") from None
 
