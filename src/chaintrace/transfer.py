@@ -143,7 +143,7 @@ def show_block_transfers(block_number: int, end_block: int | None = None) -> Non
     for number in blocks:
         print(f"Verify block: https://etherscan.io/block/{number}")
     print("Raw amounts only; decimals is not queried by this experiment")
-    print("Read-only; no database or finality/reorg recovery; transport timeouts have bounded retries")
+    print("Read-only; no database or finality/reorg recovery; timeouts and HTTP 429 have bounded retries")
 
 
 def show_transfers(tx_hash: str) -> None:

@@ -41,8 +41,8 @@ class RPCTimeoutRetryTests(unittest.TestCase):
         self.assertEqual(transport.call_count, 3)
         self.assertEqual(wait.call_count, 2)
 
-    def test_http_statuses_are_not_retried_in_this_step(self):
-        for status in (403, 429, 503):
+    def test_other_http_statuses_are_not_retried(self):
+        for status in (403, 503):
             with (
                 self.subTest(status=status),
                 patch("chaintrace.rpc.urlopen", side_effect=HTTPError(

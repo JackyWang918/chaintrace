@@ -1,10 +1,12 @@
 """M1: read public Ethereum data through JSON-RPC."""
 
 import json
+import math
 import os
 import re
 import sys
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from time import sleep
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -13,31 +15,64 @@ from urllib.request import Request, urlopen
 from dotenv import load_dotenv
 
 
-TIMEOUT_RETRY_METHODS = frozenset({
+READ_RETRY_METHODS = frozenset({
     "eth_chainId", "eth_blockNumber", "eth_getBalance",
     "eth_getTransactionByHash", "eth_getTransactionReceipt",
     "eth_call", "eth_getBlockByNumber", "eth_getLogs",
 })
+MAX_RETRY_WAIT_SECONDS = 30
 
 
 class _RPCTimeout(ValueError):
     """Only a recognized transport timeout is eligible for this experiment."""
 
 
+class _RPCRateLimited(ValueError):
+    def __init__(self, retry_after: str | None):
+        super().__init__("HTTP 429 限流")
+        self.retry_after = retry_after
+
+
+def _retry_after_seconds(raw: str | None) -> int | None:
+    if raw is None:
+        return None
+    value = raw.strip()
+    try:
+        if re.fullmatch(r"[0-9]+", value):
+            return int(value)
+        moment = parsedate_to_datetime(value)
+        if moment.tzinfo is None:
+            # The obsolete HTTP asctime format has no zone but means UTC.
+            moment = moment.replace(tzinfo=timezone.utc)
+        return max(0, math.ceil((moment - datetime.now(timezone.utc)).total_seconds()))
+    except (ValueError, TypeError, OverflowError):
+        raise ValueError("RPC HTTP 429 的 Retry-After 格式无效，本次停止") from None
+
+
 def rpc_call(url: str, method: str, params: list[object] | None = None) -> object:
     # Explicit read allowlist: do not carry this retry policy into future writes.
-    max_attempts = 3 if method in TIMEOUT_RETRY_METHODS else 1
+    max_attempts = 3 if method in READ_RETRY_METHODS else 1
     for attempt in range(1, max_attempts + 1):
         try:
             return _rpc_call_once(url, method, params)
-        except _RPCTimeout:
+        except (_RPCTimeout, _RPCRateLimited) as exc:
+            reason = "HTTP 429 限流" if isinstance(exc, _RPCRateLimited) else "请求超时"
             if attempt == max_attempts:
-                raise ValueError(f"RPC 请求超时，已尝试 {attempt} 次，本次查询失败") from None
+                raise ValueError(f"RPC {reason}，已尝试 {attempt} 次，本次查询失败") from None
+            delay = attempt
+            if isinstance(exc, _RPCRateLimited):
+                requested = _retry_after_seconds(exc.retry_after)
+                if requested is not None:
+                    delay = max(delay, requested)
+                if delay > MAX_RETRY_WAIT_SECONDS:
+                    raise ValueError(
+                        f"RPC HTTP 429 要求等待超过本实验 {MAX_RETRY_WAIT_SECONDS} 秒上限，本次停止"
+                    ) from None
             print(
-                f"RPC {method} 第 {attempt} 次请求超时，{attempt} 秒后重试（最多 {max_attempts} 次尝试）",
+                f"RPC {method} 第 {attempt} 次{reason}，{delay} 秒后重试（最多 {max_attempts} 次尝试）",
                 file=sys.stderr,
             )
-            sleep(attempt)
+            sleep(delay)
 
 
 def _rpc_call_once(url: str, method: str, params: list[object] | None = None) -> object:
@@ -51,7 +86,12 @@ def _rpc_call_once(url: str, method: str, params: list[object] | None = None) ->
         with urlopen(request, timeout=15) as response:
             body = json.load(response)
     except HTTPError as exc:
-        raise ValueError(f"RPC HTTP 错误：{exc.code}，本轮不自动重试该状态码") from None
+        code = exc.code
+        retry_after = exc.headers.get("Retry-After") if exc.headers is not None else None
+        exc.close()
+        if code == 429:
+            raise _RPCRateLimited(retry_after) from None
+        raise ValueError(f"RPC HTTP 错误：{code}，本轮不自动重试该状态码") from None
     except TimeoutError:
         raise _RPCTimeout("RPC 请求超时") from None
     except URLError as exc:

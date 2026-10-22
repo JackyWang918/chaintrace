@@ -33,7 +33,7 @@ def synthetic_logs():
     } for index in range(131)]
 
 
-def run_case(name, results, expected_exit, expected_attempts):
+def run_case(name, results, expected_exit, expected_attempts, expected_waits=None):
     attempts = 0
     log_payloads = []
 
@@ -73,8 +73,9 @@ def run_case(name, results, expected_exit, expected_attempts):
                 exit_code = exc.code
         assert exit_code == expected_exit and attempts == expected_attempts
         assert all(item == log_payloads[0] for item in log_payloads)
-        expected_waits = [call(1), call(2)] if expected_attempts == 3 else []
-        assert wait.call_args_list == expected_waits
+        if expected_waits is None:
+            expected_waits = [1, 2] if expected_attempts == 3 else []
+        assert wait.call_args_list == [call(seconds) for seconds in expected_waits]
         assert save.call_count == (1 if exit_code == 0 else 0)
         if exit_code == 0:
             with sqlite3.connect(path) as connection:
